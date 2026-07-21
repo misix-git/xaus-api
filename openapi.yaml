@@ -1,0 +1,280 @@
+openapi: 3.1.0
+info:
+  title: XAUS Gold Data API
+  version: '1.5'
+  description: 'Free gold market data: live XAU/USD spot, first-party intraday recordings, daily history,
+    multi-asset OHLCV, central-bank reserves. No key, no rate limits, GET only, CORS open. Trust policy:
+    no fabricated data; every response carries data_state ({status, as_of, source, age_seconds}) and updated_at.
+    AI consumers: validate updated_at yourself if fetching through a caching layer, and use ?compact=1
+    on /spot.'
+  contact:
+    url: https://xaus.com/contact/
+  license:
+    name: Free to use, attribution appreciated
+    url: https://xaus.com/about/
+servers:
+- url: https://xaus.com
+paths:
+  /api/v1/spot:
+    get:
+      operationId: getSpotPrice
+      summary: Live XAU/USD gold spot price with silver, tokenized gold, Bitcoin comparisons and fundamentals
+      parameters:
+      - name: currency
+        in: query
+        schema:
+          type: string
+          default: USD
+        description: ISO currency code; any code in the live FX table (160+)
+      - name: unit
+        in: query
+        schema:
+          type: string
+          enum:
+          - oz
+          - gram
+          - kg
+          default: oz
+      - name: compact
+        in: query
+        schema:
+          type: string
+          enum:
+          - '1'
+        description: Omit the full fx_rates table (~160 entries). Recommended for AI/LLM consumers.
+      responses:
+        '200':
+          description: Live or last-known-good price (see data_state)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  xau:
+                    type: object
+                    properties:
+                      price:
+                        type: number
+                      currency:
+                        type: string
+                      unit:
+                        type: string
+                  spot_usd_oz:
+                    type: number
+                  silver_usd_oz:
+                    type:
+                    - number
+                    - 'null'
+                  gold_silver_ratio:
+                    type:
+                    - number
+                    - 'null'
+                  xaut_usd:
+                    type:
+                    - number
+                    - 'null'
+                  paxg_usd:
+                    type:
+                    - number
+                    - 'null'
+                  btc_usd:
+                    type:
+                    - number
+                    - 'null'
+                  gold_market_cap_usd:
+                    type:
+                    - number
+                    - 'null'
+                  fx_rate:
+                    type: number
+                  updated_at:
+                    type: string
+                    format: date-time
+                  data_state:
+                    $ref: '#/components/schemas/DataState'
+        '503':
+          description: No real price available (upstream down, no cache); body carries data_state.status=unavailable
+  /api/v1/intraday:
+    get:
+      operationId: getIntradaySeries
+      summary: XAUS's first-party recorded price series (sampled every 2 minutes from the live quote)
+      parameters:
+      - name: symbol
+        in: query
+        schema:
+          type: string
+          enum:
+          - xau
+          - xag
+          default: xau
+      - name: hours
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 48
+          default: 24
+      responses:
+        '200':
+          description: Recorded points; check coverage_seconds for series warmth
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        t:
+                          type: integer
+                          description: unix seconds
+                        p:
+                          type: number
+                          description: USD per troy oz
+                  count:
+                    type: integer
+                  coverage_seconds:
+                    type: integer
+                  data_state:
+                    $ref: '#/components/schemas/DataState'
+  /api/v1/history:
+    get:
+      operationId: getDailyHistory
+      summary: Up to 5 years of daily XAU/USD closes with 52-week stats, ranges and returns
+      responses:
+        '200':
+          description: Daily series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        d:
+                          type: string
+                          format: date
+                        c:
+                          type: number
+                        h:
+                          type: number
+                        l:
+                          type: number
+                  high_52w:
+                    type:
+                    - number
+                    - 'null'
+                  low_52w:
+                    type:
+                    - number
+                    - 'null'
+                  return_1y_pct:
+                    type:
+                    - number
+                    - 'null'
+                  return_ytd_pct:
+                    type:
+                    - number
+                    - 'null'
+                  data_state:
+                    $ref: '#/components/schemas/DataState'
+  /api/v1/chart:
+    get:
+      operationId: getChartSeries
+      summary: Multi-asset OHLCV series (Yahoo Finance proxy)
+      parameters:
+      - name: symbol
+        in: query
+        schema:
+          type: string
+          enum:
+          - xau
+          - silver
+          - bitcoin
+          - sp500
+          - nasdaq
+          - dxy
+          - eurusd
+          - oil
+          - platinum
+          - palladium
+          default: xau
+      - name: range
+        in: query
+        schema:
+          type: string
+          enum:
+          - 1d
+          - 5d
+          - 1mo
+          - 3mo
+          - 6mo
+          - ytd
+          - 1y
+          - 2y
+          - 5y
+          - 10y
+          - max
+          default: 3mo
+      - name: interval
+        in: query
+        schema:
+          type: string
+          enum:
+          - 1m
+          - 2m
+          - 5m
+          - 15m
+          - 30m
+          - 60m
+          - 90m
+          - 1h
+          - 1d
+          - 5d
+          - 1wk
+          - 1mo
+          default: 1d
+      responses:
+        '200':
+          description: OHLCV points {t,o,h,l,c,v}
+        '503':
+          description: Upstream unavailable, no cached copy
+  /api/v1/reserves:
+    get:
+      operationId: getCentralBankReserves
+      summary: Official central-bank gold holdings by country (monthly cadence)
+      responses:
+        '200':
+          description: Ranked country list with tonnages; data_state.source may be upstream, cache, or
+            snapshot
+components:
+  schemas:
+    DataState:
+      type: object
+      description: Freshness at GENERATION time. If fetching through a caching layer, validate updated_at
+        against current time yourself.
+      properties:
+        status:
+          type: string
+          enum:
+          - fresh
+          - stale
+          - unavailable
+        as_of:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        source:
+          type:
+          - string
+          - 'null'
+        age_seconds:
+          type:
+          - integer
+          - 'null'
